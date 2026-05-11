@@ -1,0 +1,5 @@
+# Pyrefly type checker configuration
+# Tells Pyrefly to use the local venv interpreter so it can resolve
+# installed packages like redis, aiokafka, fastapi, etc.
+
+python_interpreter = "./venv/bin/python"
