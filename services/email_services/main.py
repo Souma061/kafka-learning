@@ -25,6 +25,7 @@ import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 import resend
 from redis.asyncio import Redis, from_url
@@ -49,6 +50,9 @@ _MIN_INTERVAL = 1.0 / EMAIL_RATE_LIMIT_PER_SECOND
 _last_sent_at: float = 0.0        # wall-clock time of the last send
 _emails_sent: int = 0             # counter for the health endpoint
 _emails_failed: int = 0
+
+_resend_api_calls: int = 0
+_resend_api_window_start: float = 0.0
 
 redis_client: Redis | None = None
 tasks: list[asyncio.Task] = []
@@ -102,7 +106,6 @@ app = FastAPI(
 # ---------------------------------------------------------------------------
 # Health / stats — useful to watch during the load test
 # ---------------------------------------------------------------------------
-
 @app.get("/health")
 async def health():
     return {
@@ -110,8 +113,9 @@ async def health():
         "emails_sent": _emails_sent,
         "emails_failed": _emails_failed,
         "rate_limit_per_second": EMAIL_RATE_LIMIT_PER_SECOND,
+        "simulated_api_calls_this_window": _resend_api_calls,  # add this
+        "last_sent_at": _last_sent_at,                          # add this
     }
-
 
 # ---------------------------------------------------------------------------
 # Direct (non-Kafka) endpoint — PATH 2 for the throttling experiment
@@ -140,6 +144,7 @@ async def direct_send_email(req: DirectEmailRequest):
             to=req.to,
             subject=f"Order {'Confirmed' if req.confirmed else 'Rejected'}: {req.order_id}",
             html=_render_html(req.order_id, req.product_id, req.quantity, req.confirmed, req.reason),
+            product_id=req.product_id,
         )
         return {"email_id": result.id, "path": "direct"}
     except Exception as exc:
@@ -167,16 +172,18 @@ async def handle_order_confirmed(event: Event) -> None:
         logger.warning("OrderConfirmed %s missing customer_email, skipping", event.event_id)
         return
 
+    product_id = event.payload.get("product_id", "unknown")
     await _throttled_send(
         to=customer_email,
         subject=f"✅ Order Confirmed: {event.order_id}",
         html=_render_html(
             order_id=event.order_id,
-            product_id=event.payload.get("product_id", "unknown"),
+            product_id=product_id,
             quantity=int(event.payload.get("quantity", 0)),
             confirmed=True,
         ),
         event_id=event.event_id,
+        product_id=product_id,
     )
 
 
@@ -190,17 +197,19 @@ async def handle_order_rejected(event: Event) -> None:
         logger.warning("OrderRejected %s missing customer_email, skipping", event.event_id)
         return
 
+    product_id = event.payload.get("product_id", "unknown")
     await _throttled_send(
         to=customer_email,
         subject=f"❌ Order Rejected: {event.order_id}",
         html=_render_html(
             order_id=event.order_id,
-            product_id=event.payload.get("product_id", "unknown"),
+            product_id=product_id,
             quantity=int(event.payload.get("quantity", 0)),
             confirmed=False,
             reason=event.payload.get("reason", "UNKNOWN"),
         ),
         event_id=event.event_id,
+        product_id=product_id,
     )
 
 
@@ -208,7 +217,7 @@ async def handle_order_rejected(event: Event) -> None:
 # Core send helpers
 # ---------------------------------------------------------------------------
 
-async def _throttled_send(to: str, subject: str, html: str, event_id: str) -> None:
+async def _throttled_send(to: str, subject: str, html: str, event_id: str, product_id: str) -> None:
     """
     Sends via Resend but enforces EMAIL_RATE_LIMIT_PER_SECOND.
     This is the Kafka path — the consumer sleeps here, NOT the HTTP caller.
@@ -224,7 +233,7 @@ async def _throttled_send(to: str, subject: str, html: str, event_id: str) -> No
     _last_sent_at = time.monotonic()
 
     try:
-        result = await _send_via_resend(to=to, subject=subject, html=html)
+        result = await _send_via_resend(to=to, subject=subject, html=html, product_id=product_id)
         _emails_sent += 1
         logger.info(
             "📧 email sent email_id=%s to=%s event_id=%s",
@@ -236,18 +245,39 @@ async def _throttled_send(to: str, subject: str, html: str, event_id: str) -> No
         raise   # let consume_forever handle retry / DLQ
 
 
-async def _send_via_resend(to: str, subject: str, html: str):
+async def _send_via_resend(to: str, subject: str, html: str, product_id: str):
     """
     Resend's SDK is synchronous — run it in a thread so we don't block
     the async event loop.
     """
-    params: resend.Emails.SendParams = {
-        "from": EMAIL_FROM,
-        "to": [to],
-        "subject": subject,
-        "html": html,
-    }
-    return await asyncio.to_thread(resend.Emails.send, params)
+    global _resend_api_calls, _resend_api_window_start
+
+    # --- SIMULATE RESEND API RATE LIMITING (5 req / second) ---
+    now = time.monotonic()
+    if now - _resend_api_window_start >= 1.0:
+        _resend_api_window_start = now
+        _resend_api_calls = 0
+
+    _resend_api_calls += 1
+    if _resend_api_calls > 5:
+        raise Exception("Too many requests. You can only make 5 requests per second. See rate limit response header.")
+
+    # --- ONLY HIT ACTUAL RESEND API FOR SPECIAL TRIGGER ---
+    if product_id == "SPECIAL-EMAIL-TRIGGER":
+        params: resend.Emails.SendParams = {
+            "from": EMAIL_FROM,
+            "to": [to],
+            "subject": subject,
+            "html": html,
+        }
+        return await asyncio.to_thread(resend.Emails.send, params)
+    else:
+        # Fake a successful send for all the load testing spam
+        class FakeResult:
+            def __init__(self):
+                self.id = f"fake_{uuid4()}"
+        await asyncio.sleep(0.1)  # Simulate network latency
+        return FakeResult()
 
 
 def _render_html(
