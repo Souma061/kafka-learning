@@ -16,6 +16,7 @@ from services.shared.topics import (
     INVENTORY_REJECTED,
     ORDERS_CONFIRMED,
     ORDERS_REJECTED,
+    OUTBOX_PREFIX,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -80,9 +81,6 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
     if redis_client is None:
         raise HTTPException(status_code=503, detail="Redis is not initialized")
 
-    if producer is None:
-        raise HTTPException(status_code=503, detail="Kafka producer is not initialized")
-
     order_id = str(uuid4())
 
     order = {
@@ -92,8 +90,6 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
         "quantity": str(request.quantity),
         "status": "PENDING",
     }
-
-    await redis_client.hset(f"order:{order_id}", mapping=order)
 
     event = new_event(
         "OrderCreated",
@@ -105,7 +101,17 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
         },
     )
 
-    await publish(producer, ORDERS_CREATED, event)
+    async with redis_client.pipeline(transaction=True) as pipe:
+        await pipe.hset(f"order:{order_id}", mapping=order)
+        await pipe.hset(
+            f"{OUTBOX_PREFIX}{event.event_id}",
+            mapping={
+                "topic": ORDERS_CREATED,
+                "key": order_id,
+                "value": event.model_dump_json(),
+            },
+        )
+        await pipe.execute()
 
     return {
         "order_id": order_id,

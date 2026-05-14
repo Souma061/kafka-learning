@@ -10,3 +10,6 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
 # Max emails per second the email-service consumer will process.
 # Lowering this makes Kafka's buffering advantage obvious under load.
 EMAIL_RATE_LIMIT_PER_SECOND = float(os.getenv("EMAIL_RATE_LIMIT_PER_SECOND", "2"))
+
+# Outbox relay poll interval in seconds
+OUTBOX_POLL_INTERVAL = float(os.getenv("OUTBOX_POLL_INTERVAL", "0.1"))

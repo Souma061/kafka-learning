@@ -40,6 +40,20 @@ services:
       - kafka
       - redis
 
+  outbox-service:
+    build: .
+    command: uvicorn services.outbox_services.main:app --host 0.0.0.0 --port 8004
+    ports:
+      - "8004:8004"
+    environment:
+      SERVICE_NAME: outbox-service
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-0.1}
+    depends_on:
+      - kafka
+      - redis
+
   inventory-service:
     build: .
     command: uvicorn services.inventory_services.main:app --host 0.0.0.0 --port 8002

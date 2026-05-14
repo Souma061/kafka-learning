@@ -7,4 +7,7 @@ ORDERS_CONFIRMED = "orders.confirmed" # Topic for orders that have been confirme
 ORDERS_REJECTED = "orders.rejected" # Topic for orders that have been rejected (e.g., due to inventory reservation failure) sent by the Order Service
 
 
-DLQ_SUFFIX = ".dlq"  # Suffix for dead-letter topics
+DLQ_SUFFIX = ".dlq"
+
+OUTBOX_PREFIX = "outbox:"
+OUTBOX_PREFIX_CONSTANT = "outbox."  # Prefix for outbox topics used in the Outbox pattern

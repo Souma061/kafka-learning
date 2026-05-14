@@ -2,9 +2,10 @@
 
 Backend-only learning project for understanding how Kafka handles real-life traffic in a microservice system.
 
-The system models a small ecommerce flow with three FastAPI services:
+The system models a small ecommerce flow with four FastAPI services:
 
 - `order-service`: accepts customer orders and tracks order state
+- `outbox-service`: relays saved outbox events from Redis to Kafka
 - `inventory-service`: reserves stock or rejects orders when stock is unavailable
 - `email-service`: sends or records notification events after order confirmation/rejection
 
@@ -18,6 +19,10 @@ Client
   | REST
   v
 order-service
+  |
+  | Redis transaction: order:{order_id} + outbox:{event_id}
+  v
+outbox-service
   |
   | Kafka: orders.created
   v
@@ -50,7 +55,7 @@ Responsible for:
 
 - creating new orders
 - storing order state in Redis
-- publishing `OrderCreated` events
+- writing `OrderCreated` events to the Redis outbox
 - consuming inventory result events
 - publishing final order events
 
@@ -61,6 +66,16 @@ POST /orders
 GET  /orders
 GET  /orders/{order_id}
 ```
+
+### Outbox Service
+
+Responsible for:
+
+- scanning Redis for `outbox:*` entries
+- publishing saved events to Kafka
+- deleting outbox entries only after Kafka publish succeeds
+
+More details: [Outbox Pattern Progress](docs/outbox-pattern.md)
 
 ### Inventory Service
 
@@ -112,14 +127,15 @@ orders.rejected.dlq
 
 1. A client creates an order using `POST /orders`.
 2. `order-service` stores the order as `PENDING`.
-3. `order-service` publishes an `OrderCreated` event to Kafka.
-4. `inventory-service` consumes the event.
-5. If stock is available, inventory is reserved and `InventoryReserved` is published.
-6. If stock is unavailable, `InventoryRejected` is published.
-7. `order-service` consumes the inventory result.
-8. The order becomes `CONFIRMED` or `REJECTED`.
-9. `order-service` publishes `OrderConfirmed` or `OrderRejected`.
-10. `email-service` consumes the final order event and records/sends a notification.
+3. `order-service` stores an `OrderCreated` event in Redis as `outbox:{event_id}`.
+4. `outbox-service` publishes the saved event to Kafka.
+5. `inventory-service` consumes the event.
+6. If stock is available, inventory is reserved and `InventoryReserved` is published.
+7. If stock is unavailable, `InventoryRejected` is published.
+8. `order-service` consumes the inventory result.
+9. The order becomes `CONFIRMED` or `REJECTED`.
+10. `order-service` publishes `OrderConfirmed` or `OrderRejected`.
+11. `email-service` consumes the final order event and records/sends a notification.
 
 ## Redis Key Pattern
 
@@ -128,6 +144,7 @@ Use one Redis instance with service-specific prefixes:
 ```txt
 order:{order_id}
 order:processed:{event_id}
+outbox:{event_id}
 
 inventory:stock
 inventory:reservation:{order_id}
@@ -174,6 +191,7 @@ Service URLs:
 order-service:     http://localhost:8001/docs
 inventory-service: http://localhost:8002/docs
 email-service:     http://localhost:8003/docs
+outbox-service:    http://localhost:8004/health
 ```
 
 ## Example Requests
