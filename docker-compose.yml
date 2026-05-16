@@ -25,7 +25,19 @@ services:
     image: redis:7-alpine
     container_name: kafka-learning-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: kafka-learning-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: kafka_learning
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
   order-service:
     build: .
@@ -36,9 +48,11 @@ services:
       SERVICE_NAME: order-service
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       REDIS_URL: redis://redis:6379/0
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/kafka_learning
     depends_on:
       - kafka
       - redis
+      - postgres
 
   outbox-service:
     build: .
@@ -49,10 +63,14 @@ services:
       SERVICE_NAME: outbox-service
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       REDIS_URL: redis://redis:6379/0
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/kafka_learning
       OUTBOX_POLL_INTERVAL: ${OUTBOX_POLL_INTERVAL:-0.1}
+      OUTBOX_REDIS_MAX_EVENTS: ${OUTBOX_REDIS_MAX_EVENTS:-1000}
+      OUTBOX_POSTGRES_BATCH_SIZE: ${OUTBOX_POSTGRES_BATCH_SIZE:-100}
     depends_on:
       - kafka
       - redis
+      - postgres
 
   inventory-service:
     build: .
@@ -63,9 +81,11 @@ services:
       SERVICE_NAME: inventory-service
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       REDIS_URL: redis://redis:6379/0
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/kafka_learning
     depends_on:
       - kafka
       - redis
+      - postgres
 
   email-service:
     build: .
@@ -76,12 +96,14 @@ services:
       SERVICE_NAME: email-service
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       REDIS_URL: redis://redis:6379/0
+      POSTGRES_DSN: postgresql://postgres:postgres@postgres:5432/kafka_learning
       RESEND_API_KEY: ${RESEND_API_KEY}           # set in .env or shell
       EMAIL_FROM: ${EMAIL_FROM:-onboarding@resend.dev}
       EMAIL_RATE_LIMIT_PER_SECOND: ${EMAIL_RATE_LIMIT_PER_SECOND:-2}
     depends_on:
       - kafka
       - redis
+      - postgres
 
   # ── Observability stack for K6 GUI dashboard ──────────────────────────────
 
@@ -107,3 +129,6 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
     depends_on:
       - influxdb
+
+volumes:
+  postgres-data:

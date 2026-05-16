@@ -124,6 +124,16 @@ async def handle_order_created(event: Event):
     # The correct field is `event.payload["product_id"]`.
     product_id = event.payload["product_id"]
     quantity = int(event.payload["quantity"])
+
+    order = await redis_client.hgetall(f"order:{event.order_id}")
+    if order.get("status") != "PENDING":
+        logging.info(
+            "OrderCreated ignored for order %s with status=%s",
+            event.order_id,
+            order.get("status"),
+        )
+        return
+
     current_stock = int(await redis_client.hget("inventory", product_id) or 0)
 
     if current_stock >= quantity:
@@ -170,8 +180,7 @@ async def handle_order_confirmed(event: Event):
         logging.info(f"Event {event.event_id} already processed, skipping")
         return
 
-    # No inventory action needed when order is confirmed — stock was already decremented.
-    return
+    await redis_client.delete(f"InventoryReserved:{event.order_id}")
 
 
 async def handle_order_rejected(event: Event):
@@ -192,3 +201,6 @@ async def handle_order_rejected(event: Event):
     # Restore the reserved stock on rejection
     await redis_client.hincrby("inventory", product_id, quantity)
     await redis_client.delete(f"InventoryReserved:{event.order_id}")
+
+
+

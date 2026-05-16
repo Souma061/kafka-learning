@@ -2,7 +2,7 @@
 
 Backend-only learning project for understanding how Kafka handles real-life traffic in a microservice system.
 
-The system models a small ecommerce flow with four FastAPI services:
+The system models a small ecommerce flow with five FastAPI services:
 
 - `order-service`: accepts customer orders and tracks order state
 - `outbox-service`: relays saved outbox events from Redis to Kafka
@@ -71,8 +71,10 @@ GET  /orders/{order_id}
 
 Responsible for:
 
+- coordinating via Redis leader election to prevent lock contention among multiple replicas
 - scanning Redis for `outbox:*` entries
 - publishing saved events to Kafka
+- spilling overflow events to PostgreSQL when the Redis queue exceeds 1000 items
 - deleting outbox entries only after Kafka publish succeeds
 
 More details: [Outbox Pattern Progress](docs/outbox-pattern.md)
@@ -253,7 +255,8 @@ python scripts/load_test.py
 - dead-letter queues
 - idempotency
 - eventual consistency
-- choreography-based saga flow
+- transactional outbox pattern
+- distributed leader election
 - backpressure under traffic
 
 ## Email Provider

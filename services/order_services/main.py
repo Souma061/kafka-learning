@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from redis.asyncio import Redis, from_url
@@ -89,6 +90,7 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
         "product_id": request.product_id,
         "quantity": str(request.quantity),
         "status": "PENDING",
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
     event = new_event(
@@ -156,12 +158,23 @@ async def handle_inventory_reserved(event: Event) -> None:
     if await already_processed(event):
         return
 
+    order = await redis_client.hgetall(f"order:{event.order_id}")
+    if not order:
+        logging.warning("InventoryReserved for missing order %s", event.order_id)
+        return
+
+    if order.get("status") != "PENDING":
+        logging.info(
+            "InventoryReserved ignored for order %s with status=%s",
+            event.order_id,
+            order.get("status"),
+        )
+        return
+
     await redis_client.hset(
         f"order:{event.order_id}",
         mapping={"status": "CONFIRMED"},
     )
-
-    order = await redis_client.hgetall(f"order:{event.order_id}")
 
     confirmed_event = new_event(
         "OrderConfirmed",
@@ -187,6 +200,19 @@ async def handle_inventory_rejected(event: Event) -> None:
     if await already_processed(event):
         return
 
+    order = await redis_client.hgetall(f"order:{event.order_id}")
+    if not order:
+        logging.warning("InventoryRejected for missing order %s", event.order_id)
+        return
+
+    if order.get("status") != "PENDING":
+        logging.info(
+            "InventoryRejected ignored for order %s with status=%s",
+            event.order_id,
+            order.get("status"),
+        )
+        return
+
     reason = event.payload.get("reason", "INVENTORY_REJECTED")
 
     await redis_client.hset(
@@ -196,8 +222,6 @@ async def handle_inventory_rejected(event: Event) -> None:
             "reason": reason,
         },
     )
-
-    order = await redis_client.hgetall(f"order:{event.order_id}")
 
     rejected_event = new_event(
         "OrderRejected",
@@ -212,3 +236,5 @@ async def handle_inventory_rejected(event: Event) -> None:
     )
 
     await publish(producer, ORDERS_REJECTED, rejected_event)
+
+

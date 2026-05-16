@@ -2,7 +2,7 @@
 
 This document captures what has been implemented so far for the outbox pattern in this Kafka learning project.
 
-## Why We Added It
+## Why I Added It
 
 Before this change, `order-service` created an order in Redis and then directly published `OrderCreated` to Kafka.
 
@@ -40,7 +40,7 @@ Kafka: orders.created
 inventory-service
 ```
 
-## What We Implemented
+## What I Implemented
 
 ### 1. Order Write Uses Redis Transaction
 
