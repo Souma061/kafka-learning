@@ -1,0 +1,49 @@
+{
+  "title": "Consumer Lag",
+  "uid": "consumer-lag",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["kafka", "consumer-lag"],
+  "panels": [
+    {
+      "title": "Lag by Consumer Group / Topic",
+      "type": "timeseries",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "lineInterpolation": "stepBefore",
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["last", "max", "mean"]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": "InfluxDB-K6",
+          "query": "SELECT last(\"lag\") FROM \"consumer_lag\" WHERE $__timeFilter GROUP BY \"group\", \"topic\"",
+          "alias": "$tag_group / $tag_topic",
+          "rawQuery": true
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
+  }
+}

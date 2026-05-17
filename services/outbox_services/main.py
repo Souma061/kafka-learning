@@ -90,7 +90,7 @@ async def health() -> dict[str, int | float | str | None]:
 async def check_and_acquire_leadership() -> bool:
     if redis_client is None:
         return False
-        
+
     acquired = await redis_client.set(
         LEADER_LOCK_KEY,
         INSTANCE_ID,
@@ -99,12 +99,12 @@ async def check_and_acquire_leadership() -> bool:
     )
     if acquired:
         return True
-        
+
     current_leader = await redis_client.get(LEADER_LOCK_KEY)
     if current_leader == INSTANCE_ID:
         await redis_client.expire(LEADER_LOCK_KEY, LEADER_LOCK_TTL)
         return True
-        
+
     return False
 
 async def get_current_leader() -> str | None:

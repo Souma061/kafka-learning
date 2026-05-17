@@ -105,6 +105,20 @@ services:
       - redis
       - postgres
 
+  # ── Consumer lag monitor ──────────────────────────────────────────────────
+
+  lag-monitor:
+    build: .
+    command: python -m services.lag_monitor_service.main
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_DATABASE: k6
+      LAG_POLL_INTERVAL: 5
+    depends_on:
+      - kafka
+      - influxdb
+
   # ── Observability stack for K6 GUI dashboard ──────────────────────────────
 
   influxdb:
