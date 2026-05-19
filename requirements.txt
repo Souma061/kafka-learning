@@ -14,4 +14,4 @@ resend>=2.0.0
 pytest>=8.2.0
 pytest-asyncio>=0.23.6
 fakeredis>=2.20
-influxdb-client>=1.0.0
+influxdb>=5.3.0
