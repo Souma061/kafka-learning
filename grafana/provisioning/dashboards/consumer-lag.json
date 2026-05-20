@@ -6,21 +6,16 @@
   "tags": ["kafka", "consumer-lag"],
   "panels": [
     {
-      "id": 1,
       "title": "Lag by Consumer Group / Topic",
       "type": "timeseries",
       "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
-      "datasource": {
-        "type": "influxdb",
-        "uid": "influxdb-k6"
-      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "min": 0,
           "custom": {
             "lineInterpolation": "stepBefore",
-            "showPoints": "auto",
+            "showPoints": "never",
             "spanNulls": false
           }
         },
@@ -39,20 +34,18 @@
       },
       "targets": [
         {
-          "refId": "A",
           "datasource": {
-            "type": "influxdb",
-            "uid": "influxdb-k6"
+            "type": "prometheus",
+            "uid": "prometheus"
           },
-          "query": "SELECT mean(\"lag\") FROM \"consumer_lag\" WHERE $__timeFilter GROUP BY time($__interval), \"group\", \"topic\" fill(none)",
-          "alias": "$tag_group / $tag_topic",
-          "rawQuery": true
+          "expr": "kafka_consumergroup_lag{consumergroup=~\"inventory-service|order-service|email-service\"}",
+          "legendFormat": "{{consumergroup}} / {{topic}}",
+          "refId": "A"
         }
       ]
     }
   ],
   "time": { "from": "now-15m", "to": "now" },
-  "refresh": "5s",
   "timepicker": {
     "refresh_intervals": ["5s", "10s", "30s", "1m", "5m"]
   }
