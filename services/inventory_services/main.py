@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 
 from redis.asyncio import Redis, from_url
 from fastapi import FastAPI, HTTPException
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field
 
 from services.shared.config import REDIS_URL
+from services.shared.telemetry import setup_tracing
 from services.shared.events import Event, new_event
 from services.shared.kafka import consume_forever, create_producer, publish
 from services.shared.topics import (
@@ -74,7 +76,9 @@ async def lifespan(app: FastAPI):
         await redis_client.aclose()
 
 
+setup_tracing("inventory-service")
 app = FastAPI(title="Inventory Service", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 
 class AdjustInventoryRequest(BaseModel):
@@ -201,6 +205,3 @@ async def handle_order_rejected(event: Event):
     # Restore the reserved stock on rejection
     await redis_client.hincrby("inventory", product_id, quantity)
     await redis_client.delete(f"InventoryReserved:{event.order_id}")
-
-
-

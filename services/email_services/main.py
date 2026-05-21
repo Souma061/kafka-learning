@@ -30,6 +30,7 @@ from uuid import uuid4
 import resend
 from redis.asyncio import Redis, from_url
 from fastapi import FastAPI, HTTPException
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, EmailStr
 
 from services.shared.config import (
@@ -40,6 +41,7 @@ from services.shared.config import (
 )
 from services.shared.events import Event
 from services.shared.kafka import consume_forever
+from services.shared.telemetry import setup_tracing
 from services.shared.topics import ORDERS_CONFIRMED, ORDERS_REJECTED
 
 logging.basicConfig(level=logging.INFO)
@@ -96,11 +98,13 @@ async def lifespan(app: FastAPI):
         await redis_client.aclose()
 
 
+setup_tracing("email-service")
 app = FastAPI(
     title="Email Service",
     description=__doc__,
     lifespan=lifespan,
 )
+FastAPIInstrumentor.instrument_app(app)
 
 
 # ---------------------------------------------------------------------------

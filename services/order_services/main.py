@@ -6,9 +6,12 @@ from uuid import uuid4
 
 from redis.asyncio import Redis, from_url
 from fastapi import FastAPI, HTTPException
+from opentelemetry import propagate
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from pydantic import BaseModel, Field
 
 from services.shared.config import REDIS_URL
+from services.shared.telemetry import setup_tracing
 from services.shared.events import Event, new_event
 from services.shared.kafka import create_producer, publish, consume_forever
 from services.shared.topics import (
@@ -68,7 +71,9 @@ async def lifespan(app: FastAPI):
         await redis_client.aclose()
 
 
+setup_tracing("order-service")
 app = FastAPI(title="Order Service", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 
 class CreateOrderRequest(BaseModel):
@@ -103,6 +108,10 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
         },
     )
 
+    carrier: dict[str, str] = {}
+    propagate.inject(carrier)
+    traceparent = carrier.get("traceparent", "")
+
     async with redis_client.pipeline(transaction=True) as pipe:
         await pipe.hset(f"order:{order_id}", mapping=order)
         await pipe.hset(
@@ -111,6 +120,7 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
                 "topic": ORDERS_CREATED,
                 "key": order_id,
                 "value": event.model_dump_json(),
+                "traceparent": traceparent,
             },
         )
         await pipe.execute()
@@ -120,18 +130,6 @@ async def create_order(request: CreateOrderRequest) -> dict[str, str]:
         "message": "Order created successfully",
     }
 
-
-@app.get("/orders/{order_id}")
-async def get_order(order_id: str) -> dict[str, str]:
-    if redis_client is None:
-        raise HTTPException(status_code=503, detail="Redis is not initialized")
-
-    order = await redis_client.hgetall(f"order:{order_id}")
-
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-
-    return order
 
 
 async def already_processed(event: Event) -> bool:

@@ -7,6 +7,9 @@ import uuid
 import asyncpg
 from aiokafka import AIOKafkaProducer
 from fastapi import FastAPI
+from opentelemetry import propagate
+from opentelemetry.context import attach, detach
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from redis.asyncio import Redis, from_url
 
 from services.shared.config import (
@@ -18,6 +21,7 @@ from services.shared.config import (
 )
 from services.shared.events import Event
 from services.shared.kafka import create_producer, publish
+from services.shared.telemetry import setup_tracing
 from services.shared.topics import OUTBOX_PREFIX
 
 logging.basicConfig(level=logging.INFO)
@@ -65,7 +69,9 @@ async def lifespan(app: FastAPI):
         await redis_client.aclose()
 
 
+setup_tracing("outbox-service")
 app = FastAPI(title="Outbox Service", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 
 @app.get("/health")
@@ -182,7 +188,17 @@ async def publish_outbox_entry(key: str) -> None:
             event.correlation_id,
         )
 
-        await publish(kafka_producer, topic, event)
+        traceparent = entry.get("traceparent", "")
+        if traceparent:
+            ctx = propagate.extract({"traceparent": traceparent})
+            token = attach(ctx)
+            try:
+                await publish(kafka_producer, topic, event)
+            finally:
+                detach(token)
+        else:
+            await publish(kafka_producer, topic, event)
+
         await redis_client.delete(key)
         _published_count += 1
     except Exception:
